@@ -10,6 +10,7 @@ const methods = binding.methods;
 const url = require('url');
 const net = require('net');
 const MongoClient = require('mongodb').MongoClient;
+const ObjectId = require('mongodb').ObjectID;
 
 const mongoUrl = 'mongodb://127.0.0.1:3001';
 
@@ -96,6 +97,7 @@ function createRequestParser(requestsStore, host, port, ssl) {
         }
         const r = `${methods[method]} ${url} HTTP/${versionMajor}.${versionMinor}\r\n${h}\r\n`
         const req = {
+            _id: (new ObjectId()).toString(),
             host: host,
             port: port,
             ssl: ssl,
