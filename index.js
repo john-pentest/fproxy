@@ -40,6 +40,13 @@ const httpAddress = 7783;
 const key = fs.readFileSync('cert.key');
 const cert = fs.readFileSync('certs/yngwie.ru.crt');
 
+class HTTPServerAsyncResource {
+    constructor(type, socket) {
+        this.type = type;
+        this.socket = socket;
+    }
+}
+
 function createSecureContext(cert) {
     return tls.createSecureContext({
         key: key,
@@ -78,8 +85,10 @@ function SNICallback(servername, cb) {
     }
 }
 
-function createRequestParser(requestsStore, host, port, ssl) {
-    const requestParser = new HTTPParser(HTTPParser.REQUEST);
+function createRequestParser(socket, requestsStore, host, port, ssl) {
+    const requestParser = new HTTPParser()//HTTPParser.REQUEST);
+    requestParser.initialize(HTTPParser.REQUEST, new HTTPServerAsyncResource('HTTPINCOMINGMESSAGE', socket));
+
 
     requestParser[kOnMessageComplete] = function () {
         const req = requestsStore[requestsStore.length - 1];
@@ -115,8 +124,10 @@ function createRequestParser(requestsStore, host, port, ssl) {
     return requestParser;
 }
 
-function createResponseParser(requestsStore) {
-    const responseParser = new HTTPParser(HTTPParser.RESPONSE);        
+function createResponseParser(socket, requestsStore) {
+    const responseParser = new HTTPParser()//HTTPParser.RESPONSE);    
+    responseParser.initialize(HTTPParser.RESPONSE, new HTTPServerAsyncResource('HTTPINCOMINGMESSAGE', socket));
+    
 
     responseParser[kOnMessageComplete] = () => {
         console.log('responseParser kOnMessageComplete');
@@ -171,8 +182,8 @@ function httpConnection(req, res) {
             const proxyReq = net.connect(options, () => {
                 const requestsStore = [];
 
-                const requestParser = createRequestParser(requestsStore, options.host, options.port, false);
-                const responseParser = createResponseParser(requestsStore);
+                const requestParser = createRequestParser(req.socket, requestsStore, options.host, options.port, false);
+                const responseParser = createResponseParser(proxyReq, requestsStore);
 
                 req.socket.on('data', (chunk) => {
                     requestParser.execute(chunk)
@@ -185,7 +196,7 @@ function httpConnection(req, res) {
                 });
                 proxyReq.on('end', () => {
                     responseParser.finish()
-                }) 
+                });
 
                 
                 let h = '';
@@ -254,8 +265,7 @@ if (cluster.isMaster) {
 
             const requestsStore = [];
 
-            const requestParser = createRequestParser(requestsStore, options.host, options.port, true);
-            const responseParser = createResponseParser(requestsStore);
+            
 
             const tlsOptions = {
                 key: key,
@@ -264,6 +274,9 @@ if (cluster.isMaster) {
                 isServer: true
             };
             const tlsSocket = new tls.TLSSocket(cltSocket, tlsOptions);
+            const requestParser = createRequestParser(tlsSocket, requestsStore, options.host, options.port, true);
+            const responseParser = createResponseParser(proxyReq, requestsStore);
+
             tlsSocket.pipe(proxyReq).pipe(tlsSocket);
 
             tlsSocket.on('data', (chunk) => {
@@ -277,7 +290,7 @@ if (cluster.isMaster) {
             });
             proxyReq.on('end', () => {
                 responseParser.finish()
-            })
+            });
         });
 
         proxyReq.on('error', (e) => {
